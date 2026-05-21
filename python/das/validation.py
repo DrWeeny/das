@@ -1,7 +1,8 @@
 import os
 import re
 import sys
-import imp
+import importlib
+import importlib.util
 import glob
 import copy
 import das
@@ -47,7 +48,7 @@ class Schema(object):
       dmv = md.get("das_minimum_version", None)
       if dmv is not None:
          try:
-            spl = map(int, dmv.split("."))
+            spl = list(map(int, dmv.split(".")))
             wmaj, wmin = spl[0], spl[1]
          except:
             raise Exception("'das_minimum_version' must follow MAJOR.MINOR format")
@@ -60,8 +61,11 @@ class Schema(object):
       if os.path.isfile(pmp):
          try:
             modname = os.path.splitext(os.path.basename(self.path))[0]
-            mod = imp.load_source("das.schema.%s" % modname, pmp)
-         except Exception, e:
+            spec = importlib.util.spec_from_file_location("das.schema.%s" % modname, pmp)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["das.schema.%s" % modname] = mod
+            spec.loader.exec_module(mod)
+         except Exception as e:
             import traceback
             print("[das] Failed to load schema module '%s' (%s)" % (pmp, e))
             traceback.print_exc()
@@ -101,7 +105,7 @@ class Schema(object):
          das.schematypes.TypeValidator.CurrentSchema = self.name
          rv = das.read_string(content, encoding=md.get("encoding", None), **eval_locals)
          das.schematypes.TypeValidator.CurrentSchema = ""
-         for typename, validator in rv.iteritems():
+         for typename, validator in rv.items():
             k = "%s.%s" % (self.name, typename)
             if SchemaTypesRegistry.instance.has_schema_type(k):
                raise Exception("[das] Schema type '%s' already registered in another schema" % k)
@@ -126,9 +130,9 @@ class Schema(object):
       self.master_types = None
 
    def list_types(self, sort=True, masters_only=False):
-      rv = self.types.keys()
+      rv = list(self.types.keys())
       if masters_only and self.master_types is not None:
-         rv = filter(lambda x: x in self.master_types, rv)
+         rv = [x for x in rv if x in self.master_types]
       if sort:
          rv.sort()
       return rv
@@ -143,7 +147,7 @@ class Schema(object):
       return self.types.get(name, None)
 
    def get_type_name(self, typ):
-      for k, v in self.types.iteritems():
+      for k, v in self.types.items():
          if type(v) != type(typ):
             continue
          if v == typ:
@@ -182,12 +186,12 @@ class SchemaLocation(object):
                self.schemas[schema.name] = schema
 
    def unload_schemas(self):
-      for _, schema in self.schemas.iteritems():
+      for _, schema in self.schemas.items():
          schema.unload()
       self.schemas = {}
 
    def list_schemas(self, sort=True):
-      rv = self.schemas.keys()
+      rv = list(self.schemas.keys())
       if sort:
          rv.sort()
       return rv
@@ -200,7 +204,7 @@ class SchemaLocation(object):
 
    def list_schema_types(self, schema=None, sort=True, masters_only=False):
       rv = set()
-      for n, s in self.schemas.iteritems():
+      for n, s in self.schemas.items():
          if schema is not None and n != schema:
             continue
          rv = rv.union(s.list_types(sort=False, masters_only=masters_only))
@@ -210,13 +214,13 @@ class SchemaLocation(object):
       return rv
 
    def has_schema_type(self, name):
-      for _, schema in self.schemas.iteritems():
+      for _, schema in self.schemas.items():
          if schema.has_type(name):
             return True
       return False
 
    def get_schema_type(self, name):
-      for sname, schema in self.schemas.iteritems():
+      for sname, schema in self.schemas.items():
          if name.startswith(sname+"."):
             rv = schema.get_type(name)
             if rv is not None:
@@ -224,19 +228,31 @@ class SchemaLocation(object):
       return None
 
    def get_schema_type_name(self, typ):
-      for _, schema in self.schemas.iteritems():
+      for _, schema in self.schemas.items():
          rv = schema.get_type_name(typ)
          if rv:
             return rv
       return ""
 
-   def __cmp__(self, oth):
-      p0 = os.path.abspath(self.path)
-      p1 = os.path.abspath(oth.path)
+   def __eq__(self, other):
+      if not isinstance(other, SchemaLocation):
+         return NotImplemented
+      p0 = os.path.abspath(self.path) if self.path else ""
+      p1 = os.path.abspath(other.path) if other.path else ""
       if sys.platform == "win32":
          p0 = p0.replace("\\", "/").lower()
          p1 = p1.replace("\\", "/").lower()
-      return cmp(p0, p1)
+      return p0 == p1
+
+   def __lt__(self, other):
+      if not isinstance(other, SchemaLocation):
+         return NotImplemented
+      p0 = os.path.abspath(self.path) if self.path else ""
+      p1 = os.path.abspath(other.path) if other.path else ""
+      if sys.platform == "win32":
+         p0 = p0.replace("\\", "/").lower()
+         p1 = p1.replace("\\", "/").lower()
+      return p0 < p1
 
    def __hash__(self):
       return hash(self.path)
@@ -367,11 +383,11 @@ class SchemaTypesRegistry(object):
 
       # re register dynamically added schema types
       if len(self.dyntypes):
-         for k, v in self.dyntypes.iteritems():
+         for k, v in self.dyntypes.items():
             try:
                if not self._add_schema_type(k, v):
                   print("Failed to re register dynamically added type '%s' (already registered)" % k)
-            except Exception, e:
+            except Exception as e:
                print("Failed to re register dynamically added type '%s' (%s)" % (k, e))
 
       self._rebuild_cache()
@@ -400,7 +416,7 @@ class SchemaTypesRegistry(object):
 
    def list_schemas(self, sort=True):
       self.load_schemas()
-      rv = self.cache["name_to_schema"].keys()
+      rv = list(self.cache["name_to_schema"].keys())
       if sort:
          rv.sort()
       return rv
@@ -408,7 +424,7 @@ class SchemaTypesRegistry(object):
    def list_schema_types(self, schema=None, sort=True, masters_only=False):
       self.load_schemas()
       if schema is None:
-         rv = self.cache["name_to_type"].keys()
+         rv = list(self.cache["name_to_type"].keys())
       else:
          schema = self.cache["name_to_schema"].get(schema, None)
          if schema:

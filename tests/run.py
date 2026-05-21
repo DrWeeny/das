@@ -1,6 +1,6 @@
 import os
 import re
-import imp
+import importlib.util
 import sys
 import glob
 import unittest
@@ -49,7 +49,9 @@ if __name__ == "__main__":
       if name in runfuncs:
          # specific functions
          try:
-            mod = imp.load_source(name, test+"/__init__.py")
+            spec = importlib.util.spec_from_file_location(name, test+"/__init__.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
             for fn in runfuncs[name]:
                print("Add '%s.%s' to test suite..." % (name, fn))
             names = ["TestCase.%s" % x for x in runfuncs[name]]
@@ -59,7 +61,9 @@ if __name__ == "__main__":
       elif runall or (runtests and name in runtests):
          # whole tests
          try:
-            mod = imp.load_source(name, test+"/__init__.py")
+            spec = importlib.util.spec_from_file_location(name, test+"/__init__.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
             print("Add '%s' to test suite..." % name)
             suite.addTests(loader.loadTestsFromTestCase(mod.TestCase))
          except Exception as e:

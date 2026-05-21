@@ -21,8 +21,11 @@ class Attribute(object):
    def __repr__(self):
       return "Attribute('%s')" % self.attr
 
-   def __cmp__(self, oth):
-      s0 = str(self)
-      s1 = str(oth)
-      return (-1 if (s0 < s1) else (0 if (s0 == s1) else 1))
+   def __eq__(self, oth):
+      if isinstance(oth, Attribute):
+         return self.attr == oth.attr
+      return NotImplemented
+
+   def __hash__(self):
+      return hash(self.attr)
 

@@ -100,8 +100,7 @@ class TypeBase(object):
                getattr(self, "_validate_globally")()
             except:
                _, ei, tb = sys.exc_info()
-               ei = das.ValidationError("Global Validation Failed (%s)" % str(ei))
-               raise ei.__class__, ei, tb
+               raise das.ValidationError("Global Validation Failed (%s)" % str(ei)).with_traceback(tb)
 
    def _get_schema_type(self):
       return self.__dict__["_schema_type"]
@@ -162,12 +161,12 @@ class Sequence(TypeBase, list):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
-            super(Sequence, self).__setslice__(oldlen, len(self), [])
-         except Exception, e:
+            del self[oldlen:]
+         except Exception as e:
             print("das.types.Sequence.__imul__: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return self
 
    def __mul__(self, n):
@@ -184,12 +183,12 @@ class Sequence(TypeBase, list):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
-            super(Sequence, self).__setslice__(n, len(self), [])
-         except Exception, e:
+            del self[n:]
+         except Exception as e:
             print("das.types.Sequence.__iadd__: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return self
 
    def __add__(self, y):
@@ -198,61 +197,62 @@ class Sequence(TypeBase, list):
       return rv
 
    def __setitem__(self, i, y):
-      super(Sequence, self).__setitem__(i, self._adapt_value(y, index=i))
-      self._gvalidate()
+      if isinstance(i, slice):
+         # Save entire list for proper recovery (slice assignment can change list length)
+         oldlist = list(super(Sequence, self).__getitem__(slice(None)))
+         newvals = [self._adapt_value(x, index=k) for k, x in enumerate(y)]
+         super(Sequence, self).__setitem__(i, newvals)
+         try:
+            self._gvalidate()
+         except:
+            _, ei, tb = sys.exc_info()
+            try:
+               # Restore entire list
+               super(Sequence, self).__setitem__(slice(None), oldlist)
+            except Exception as e:
+               print("das.types.Sequence.__setitem__: Failed to recover sequence data (%s)" % e)
+            raise ei.with_traceback(tb)
+      else:
+         super(Sequence, self).__setitem__(i, self._adapt_value(y, index=i))
+         self._gvalidate()
 
    def __getitem__(self, i):
+      if isinstance(i, slice):
+         return self._wrap(super(Sequence, self).__getitem__(i))
       return TypeBase.TransferGlobalValidator(self, super(Sequence, self).__getitem__(i))
 
    def __delitem__(self, i):
+      if isinstance(i, slice):
+         oldvals = super(Sequence, self).__getitem__(i)
+         super(Sequence, self).__delitem__(i)
+         try:
+            self._gvalidate()
+         except:
+            _, ei, tb = sys.exc_info()
+            try:
+               start = i.start if i.start is not None else 0
+               for j, v in enumerate(oldvals):
+                  super(Sequence, self).insert(start + j, v)
+            except Exception as e:
+               print("das.types.Sequence.__delitem__: Failed to recover sequence data (%s)" % e)
+            raise ei.with_traceback(tb)
+         return
       ii = self._wrap_index(i, clamp=False)
       item = super(Sequence, self).__getitem__(ii)
       super(Sequence, self).__delitem__(i)
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Sequence, self).insert(ii, item)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Sequence.__delitem__: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def __iter__(self):
       for item in super(Sequence, self).__iter__():
          yield TypeBase.TransferGlobalValidator(self, item)
-
-   def __setslice__(self, i, j, y):
-      oldvals = super(Sequence, self).__getslice__(i, j)
-      newvals = [self._adapt_value(x, index=i+k) for k, x in enumerate(y)]
-      super(Sequence, self).__setslice__(i, j, newvals)
-      try:
-         self._gvalidate()
-      except:
-         ec, ei, tb = sys.exc_info()
-         try:
-            ii = self._wrap_index(i, clamp=True)
-            super(Sequence, self).__setslice__(ii, ii+len(newvals), oldvals)
-         except Exception, e:
-            print("das.types.Sequence.__setslice__: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
-
-   def __getslice__(self, i, j):
-      return self._wrap(super(Sequence, self).__getslice__(i, j))
-
-   def __delslice__(self, i, j):
-      oldvals = super(Sequence, self).__getslice__(i, j)
-      super(Sequence, self).__delslice__(i, j)
-      try:
-         self._gvalidate()
-      except:
-         ec, ei, tb = sys.exc_info()
-         try:
-            ii = self._wrap_index(i, clamp=True)
-            super(Sequence, self).__setslice__(ii, ii, oldvals)
-         except Exception, e:
-            print("das.types.Sequence.__setslice__: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
 
    # def __contains__(self, y):
    #    try:
@@ -269,12 +269,12 @@ class Sequence(TypeBase, list):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Sequence, self).pop(self._wrap_index(i, n=len(self)-1, clamp=True))
-         except Exception, e:
+         except Exception as e:
             print("das.types.Sequence.insert: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def append(self, y):
       n = len(self)
@@ -282,12 +282,12 @@ class Sequence(TypeBase, list):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Sequence, self).pop()
-         except Exception, e:
+         except Exception as e:
             print("das.types.Sequence.append: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def extend(self, y):
       newvals = [self._adapt_value(x, index=len(self)+i) for i, x in enumerate(y)]
@@ -295,27 +295,27 @@ class Sequence(TypeBase, list):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
-            super(Sequence, self).__setslice__(len(self) - len(newvals), len(self), [])
-         except Exception, e:
+            del self[len(self) - len(newvals):]
+         except Exception as e:
             print("das.types.Sequence.extend: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def pop(self, *args):
       rv = super(Sequence, self).pop(*args)
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             if args:
                super(Sequence, self).insert(self._wrap_index(args[0], n=len(self)+1, clamp=False), rv)
             else:
                super(Sequence, self).append(rv)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Sequence.pop: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return rv
 
    def remove(self, y):
@@ -325,12 +325,12 @@ class Sequence(TypeBase, list):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Sequence, self).insert(idx, item)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Sequence.remove: Failed to recover sequence data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
 
 class Set(TypeBase, set):
@@ -344,13 +344,13 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).clear()
             super(Set, self).__ior__(oldvals)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.__iand__: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return self
 
    def __and__(self, y):
@@ -367,13 +367,13 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).clear()
             super(Set, self).__ior__(oldvals)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.__isub__: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return self
 
    def __sub__(self, y):
@@ -390,13 +390,13 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).clear()
             super(Set, self).__ior__(oldvals)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.__ior__: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return self
 
    def __or__(self, y):
@@ -413,13 +413,13 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).clear()
             super(Set, self).__ior__(oldvals)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.__ixor__: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return self
 
    def __xor__(self, y):
@@ -432,15 +432,6 @@ class Set(TypeBase, set):
       rv ^= y
       return rv
 
-   def __cmp__(self, oth):
-      # base set class doesn't implement __cmp__
-      #   but we need it for some other purpose
-      if len(self.symmetric_difference(oth)) == 0:
-         return 0
-      elif len(self) <= len(oth):
-         return -1
-      else:
-         return 1
 
    def __iter__(self):
       for item in super(Set, self).__iter__():
@@ -452,12 +443,12 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).__ior__(oldvals)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.clear: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def copy(self):
       return self._wrap(self)
@@ -470,12 +461,12 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).remove(ae)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.add: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def update(self, *args):
       added = set()
@@ -489,25 +480,25 @@ class Set(TypeBase, set):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             for item in added:
                super(Set, self).remove(item)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.update: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def pop(self):
       item = super(Set, self).pop()
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Set, self).add(item)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Set.pop: Failed to recover set data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return item
 
    def difference(self, rhs):
@@ -540,15 +531,15 @@ class Dict(TypeBase, dict):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             if wasset:
                super(Dict, self).__setitem__(k, oldval)
             else:
                del(self[k])
-         except Exception, e:
+         except Exception as e:
             print("das.types.Dict.__setitem__: Failed to recover dict data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def __getitem__(self, k):
       return TypeBase.TransferGlobalValidator(self, super(Dict, self).__getitem__(self._adapt_key(k)))
@@ -560,12 +551,12 @@ class Dict(TypeBase, dict):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Dict, self).__setitem__(_k, _v)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Dict.popitem: Failed to recover dict data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    # def __contains__(self, k):
    #    try:
@@ -608,7 +599,7 @@ class Dict(TypeBase, dict):
                self[k] = self._adapt_value(v, key=k)
       elif len(args) > 1:
          raise Exception("update expected at most 1 arguments, got %d" % len(args))
-      for k, v in kwargs.iteritems():
+      for k, v in kwargs.items():
          k = self._adapt_key(k)
          if k in self:
             if not k in oldvals:
@@ -619,15 +610,15 @@ class Dict(TypeBase, dict):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             for k in remvals:
                super(Dict, self).__delitem__(k)
-            for k, v in oldvals.iteritems():
+            for k, v in oldvals.items():
                super(Dict, self).__setitem__(k, v)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Dict.update: Failed to recover dict data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def pop(self, k, *args):
       _k = self._adapt_key(k)
@@ -635,15 +626,12 @@ class Dict(TypeBase, dict):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
-            # if _k i not defined but a default value is provided, we should not reach here
-            #   as dict is actually unchanged
-            # -> no need to check if _k was a valid key
             super(Dict, self).__setitem__(_k, _v)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Dict.popitem: Failed to recover dict data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return _v
 
    def popitem(self):
@@ -651,40 +639,32 @@ class Dict(TypeBase, dict):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Dict, self).__setitem__(item[0], item[1])
-         except Exception, e:
+         except Exception as e:
             print("das.types.Dict.popitem: Failed to recover dict data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return item
 
    def clear(self):
-      items = super(Dict, self).items()
+      items = list(super(Dict, self).items())
       super(Dict, self).clear()
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             super(Dict, self).update(items)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Dict.clear: Failed to recover dict data (%s)" % e)
-         raise ec, ei, tb
-
-   def itervalues(self):
-      for v in super(Dict, self).itervalues():
-         yield TypeBase.TransferGlobalValidator(self, v)
+         raise ei.with_traceback(tb)
 
    def values(self):
-      return [x for x in self.itervalues()]
-
-   def iteritems(self):
-      for k, v in super(Dict, self).iteritems():
-         yield k, TypeBase.TransferGlobalValidator(self, v)
+      return [TypeBase.TransferGlobalValidator(self, v) for v in super(Dict, self).values()]
 
    def items(self):
-      return [x for x in self.iteritems()]
+      return [(k, TypeBase.TransferGlobalValidator(self, v)) for k, v in super(Dict, self).items()]
 
 
 class Struct(TypeBase):
@@ -725,15 +705,15 @@ class Struct(TypeBase):
          try:
             self._gvalidate()
          except:
-            ec, ei, tb = sys.exc_info()
+            _, ei, tb = sys.exc_info()
             try:
                if wasset:
                   self._dict[k] = oldval
                else:
                   del(self._dict[k])
-            except Exception, e:
+            except Exception as e:
                print("das.types.Struct.__setattr__: Failed to recover struct data (%s)" % e)
-            raise ec, ei, tb
+            raise ei.with_traceback(tb)
 
    def __delattr__(self, k):
       k = self._get_alias(k)
@@ -742,13 +722,12 @@ class Struct(TypeBase):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
-         # Note: we can reach here only if k was a valid key (otherwise __delitem__(k) would fail)
+         _, ei, tb = sys.exc_info()
          try:
             self._dict[k] = oldval
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.__delattr__: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def __getitem__(self, k):
       k = self._get_alias(k)
@@ -763,15 +742,15 @@ class Struct(TypeBase):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             if wasset:
                self._dict[k] = oldval
             else:
                del(self._dict[k])
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.__setitem__: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def __delitem__(self, k):
       _k = k
@@ -781,19 +760,15 @@ class Struct(TypeBase):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
-         # Note: we can reach here only if k was a valid key (otherwise __delitem__(k) would fail)
+         _, ei, tb = sys.exc_info()
          try:
             self._dict[k] = oldval
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.__delitem__: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def __contains__(self, k):
       return self._dict.__contains__(self._get_alias(k))
-
-   def __cmp__(self, oth):
-      return self._dict.__cmp__(oth._dict if isinstance(oth, Struct) else oth)
 
    def __eq__(self, oth):
       return self._dict.__eq__(oth._dict if isinstance(oth, Struct) else oth)
@@ -822,11 +797,10 @@ class Struct(TypeBase):
    def __repr__(self):
       return self._dict.__repr__()
 
-   # Override of dict.has_key
+   # Override of dict.has_key (dict.has_key removed in Python 3)
    def _has_key(self, k):
-      return self._dict.has_key(self._get_alias(k))
+      return self._get_alias(k) in self._dict
 
-   # Override of dict.pop
    def _pop(self, k, *args):
       _k = k
       k = self._get_alias(k)
@@ -835,46 +809,42 @@ class Struct(TypeBase):
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             self._dict[k] = oldval
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.pop: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
       return retval
 
-   # Override of dict.popitem
    def _popitem(self):
       k, v = self._dict.popitem()
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             self._dict[k] = v
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.popitem: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
-   # Override of dict.clear
    def _clear(self):
-      items = self._dict.items()
+      items = list(self._dict.items())
       self._dict.clear()
       try:
          self._gvalidate()
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             self._dict.update(items)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.clear: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
-   # Override of dict.copy
    def _copy(self):
       return self._wrap(self)
 
-   # Override of dict.setdefault
    def _setdefault(self, *args):
       nargs = len(args)
       if nargs > 2:
@@ -885,7 +855,6 @@ class Struct(TypeBase):
          args = (args[0], self._adapt_value(args[1], key=args[0]))
       self._dict.setdefault(*args)
 
-   # Override of dict.update
    def _update(self, *args, **kwargs):
       if len(args) > 1:
          raise Exception("update expected at most 1 arguments, got %d" % len(args))
@@ -906,7 +875,7 @@ class Struct(TypeBase):
                   self._check_reserved(k)
                   self._dict[k] = self._adapt_value(v, key=k)
 
-         for k, v in kwargs.iteritems():
+         for k, v in kwargs.items():
             k = self._get_alias(k)
             self._check_reserved(k)
             self._dict[k] = self._adapt_value(v, key=k)
@@ -914,22 +883,19 @@ class Struct(TypeBase):
          self._gvalidate()
 
       except:
-         ec, ei, tb = sys.exc_info()
+         _, ei, tb = sys.exc_info()
          try:
             self._dict.clear()
             self._dict.update(oldvals)
-         except Exception, e:
+         except Exception as e:
             print("das.types.Struct.update: Failed to recover struct data (%s)" % e)
-         raise ec, ei, tb
+         raise ei.with_traceback(tb)
 
    def _get_alias(self, k):
       st = self._get_schema_type()
-      if st is not None and st.has_key(k):
+      if st is not None and k in st:
          aliasname = das.schematypes.Alias.Name(st[k])
          if aliasname is not None:
-            # if isinstance(st[k], das.schematypes.Deprecated):
-            #    message = ("[das] Field %s is deprecated, use %s instead" % (repr(k), repr(aliasname)))
-            #    das.print_once(message)
             return aliasname
       return k
 
@@ -955,19 +921,18 @@ class Struct(TypeBase):
             self.__dict__[k2] = getattr(self._dict, k)
 
    def ordered_keys(self):
-      return filter(lambda x: x in self, self._get_schema_type().ordered_keys())
+      return list(filter(lambda x: x in self, self._get_schema_type().ordered_keys()))
 
    def _itervalues(self):
-      for v in self._dict.itervalues():
+      for v in self._dict.values():
          yield TypeBase.TransferGlobalValidator(self, v)
 
    def _values(self):
-      return [x for x in self.itervalues()]
+      return list(self._itervalues())
 
    def _iteritems(self):
-      for k, v in self._dict.iteritems():
+      for k, v in self._dict.items():
          yield k, TypeBase.TransferGlobalValidator(self, v)
 
    def _items(self):
-      return [x for x in self.iteritems()]
-
+      return list(self._iteritems())

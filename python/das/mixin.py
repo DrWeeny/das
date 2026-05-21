@@ -2,13 +2,7 @@ import os
 import sys
 import das
 import inspect
-try:
-   import importlib
-except:
-   # Python 2.6 doesn't come with import lib, use our own copy
-   importlibdir = os.path.join(os.path.dirname(das.__file__), "importlib-1.0.4")
-   sys.path.append(importlibdir)
-   import importlib
+import importlib
 
 
 class BindError(Exception):
@@ -34,7 +28,8 @@ _DynamicClasses = {}
 _IgnoreMethods = set(["__init__", "__del__"])
 
 def is_method(klass, name):
-   return inspect.ismethod(getattr(klass, name, None))
+   attr = getattr(klass, name, None)
+   return inspect.isfunction(attr) or inspect.ismethod(attr)
 
 def is_inherited_method(klass, name):
    if not is_method(klass, name):
@@ -52,19 +47,23 @@ def is_overridden_method(klass, name):
    return (not is_inherited_method(klass, name) and not is_new_method(klass, name))
 
 def is_instance_method(klass, name):
-   if not is_method(klass, name):
+   attr = getattr(klass, name, None)
+   if attr is None:
       return False
-   else:
-      return (getattr(klass, name).__self__ is not klass)
+   if inspect.isfunction(attr):
+      return True  # Regular instance method (unbound in Python 3)
+   if inspect.ismethod(attr):
+      return (attr.__self__ is not klass)  # False for classmethods
+   return False
 
 def is_class_method(klass, name):
-   if not is_method(klass, name):
+   attr = getattr(klass, name, None)
+   if attr is None:
       return False
-   else:
-      return (getattr(klass, name).__self__ is klass)
+   return inspect.ismethod(attr) and (attr.__self__ is klass)
 
 def list_methods(klass):
-   return filter(lambda x: is_instance_method(klass, x) and x not in _IgnoreMethods, dir(klass))
+   return list(filter(lambda x: is_instance_method(klass, x) and x not in _IgnoreMethods, dir(klass)))
 
 
 def get_bound_mixins(instance):

@@ -11,7 +11,7 @@
         'given': 'bart',
         'family': 'simpson'
       },
-      'age': 10L,
+      'age': 10,
       'gender': 'male'
     },
     {
@@ -26,7 +26,7 @@
         'given': 'Maggie',
         'family': 'simpson'
       },
-      'age': 1L,
+      'age': 1,
       'gender': 'female'
     }
   ],
@@ -35,7 +35,7 @@
       'given': 'homer',
       'family': 'simpson'
     },
-    'age': 38L,
+    'age': 38,
     'gender': 'male'
   },
   'grandparents': {
@@ -44,7 +44,7 @@
         'given': 'abraham',
         'family': 'simpson'
       },
-      'age': 80L,
+      'age': 80,
       'gender': 'male'
     }
   },

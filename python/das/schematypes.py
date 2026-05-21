@@ -1,6 +1,7 @@
 import re
 import das
-import imp
+import importlib
+import importlib.util
 
 
 class ValidationError(Exception):
@@ -21,10 +22,8 @@ class TypeValidator(object):
       self.hidden = hidden
       self._properties = {}
       if __properties__:
-         for k, v in __properties__.iteritems():
+         for k, v in __properties__.items():
             self._properties[k] = v
-      # if not "mixins" in self._properties:
-      #    self._properties["mixins"] = []
 
    def has_property(self, name):
       return (name in self._properties)
@@ -129,7 +128,7 @@ class Boolean(TypeValidator):
 
    def _validate_self(self, value):
       if not isinstance(value, bool):
-         if isinstance(value, basestring):
+         if isinstance(value, str):
             if self.TrueExp.match(value):
                return True
             elif self.FalseExp.match(value):
@@ -176,23 +175,23 @@ class Integer(TypeValidator):
 
    def _validate_self(self, value):
       if self.enum is not None:
-         if isinstance(value, basestring):
+         if isinstance(value, str):
             v = das.ascii_or_unicode(value)
             if not v in self.enum:
-               raise ValidationError("Expected a enumeration string in %s, got %s" % (self.enum.keys(), repr(value)))
+               raise ValidationError("Expected a enumeration string in %s, got %s" % (list(self.enum.keys()), repr(value)))
             else:
                value = self.enum[v]
-         elif isinstance(value, (int, long)):
+         elif isinstance(value, int):
             if not value in self.enumvals:
                raise ValidationError("Expected a enumeration value (string or integer) in %s, got %s" % (self.enum, value))
-      if not isinstance(value, (int, long)):
+      if not isinstance(value, int):
          raise ValidationError("Expected an integer value, got %s" % type(value).__name__)
       if self.enum is None:
          if self.min is not None and value < self.min:
             raise ValidationError("Integer value out of range, %d < %d" % (value, self.min))
          if self.max is not None and value > self.max:
             raise ValidationError("Integer value out of range, %d > %d" % (value, self.max))
-      return long(value)
+      return int(value)
 
    def _validate(self, value, key=None, index=None):
       return self._validate_self(value)
@@ -201,7 +200,7 @@ class Integer(TypeValidator):
       super(Integer, self)._decode(encoding)
       if self.enum:
          e = {}
-         for k, v in self.enum.iteritems():
+         for k, v in self.enum.items():
             e[das.decode(k, encoding)] = v
          self.enum = e
          self.enumvals = set(self.enum.values())
@@ -262,7 +261,7 @@ class Real(TypeValidator):
       self.max = max
 
    def _validate_self(self, value):
-      if not isinstance(value, (int, long, float)):
+      if not isinstance(value, (int, float)):
          raise ValidationError("Expected a real value, got %s" % type(value).__name__)
       if self.min is not None and value < self.min:
          raise ValidationError("Real value out of range, %d < %d" % (value, self.min))
@@ -320,9 +319,9 @@ class String(TypeValidator):
       self.strict = strict
       self.matches = None
       if choices is None and matches is not None:
-         if isinstance(matches, basestring):
+         if isinstance(matches, str):
             self.matches = re.compile(matches)
-         elif isinstance(matches, re._pattern_type):
+         elif isinstance(matches, re.Pattern):
             self.matches = matches
          else:
             raise Exception("String schema type 'matches' option must be a string or a compiled regular expression")
@@ -331,13 +330,13 @@ class String(TypeValidator):
       if self.choices is None:
          return None
       if callable(self.choices):
-         rv = map(lambda x: das.ascii_or_unicode(x), self.choices())
+         rv = list(map(lambda x: das.ascii_or_unicode(x), self.choices()))
       else:
          rv = self.choices
       return (set(rv) if asSet else rv)
 
    def _validate_self(self, value):
-      if not isinstance(value, basestring):
+      if not isinstance(value, str):
          raise ValidationError("Expected a string value, got %s" % type(value).__name__)
       v = das.ascii_or_unicode(value)
       if self.choices is not None and self.strict:
@@ -355,7 +354,7 @@ class String(TypeValidator):
       super(String, self)._decode(encoding)
       if self.choices:
          if not callable(self.choices):
-            self.choices = map(lambda x: das.decode(x, encoding), self.choices)
+            self.choices = list(map(lambda x: das.decode(x, encoding), self.choices))
       if self.matches:
          self.matches = re.compile(das.decode(self.matches.pattern, encoding))
       return self
@@ -445,7 +444,7 @@ class Set(TypeValidator):
          for item in value:
             try:
                tmp[i] = self.type.validate(item)
-            except ValidationError, e:
+            except ValidationError as e:
                raise ValidationError("Invalid set element: %s" % e)
             i += 1
          rv = das.types.Set(tmp)
@@ -483,7 +482,7 @@ class Set(TypeValidator):
       if not isinstance(args, (list, set, tuple)):
          raise ValidationError("Expected a sequence value, got %s" % type(args).__name__)
 
-      rv = das.types.Set(map(lambda x: self.type.partial_make(x), args))
+      rv = das.types.Set(list(map(lambda x: self.type.partial_make(x), args)))
       rv._set_schema_type(self)
       return rv
 
@@ -537,7 +536,7 @@ class Sequence(TypeValidator):
          for index, item in enumerate(value):
             try:
                tmp[index] = self.type.validate(item)
-            except ValidationError, e:
+            except ValidationError as e:
                raise ValidationError("Invalid sequence element: %s" % e)
          rv = das.types.Sequence(tmp)
          rv._set_schema_type(self)
@@ -583,7 +582,7 @@ class Sequence(TypeValidator):
       if not isinstance(args, (list, set, tuple)):
          raise ValidationError("Expected a sequence value, got %s" % type(args).__name__)
 
-      rv = das.types.Sequence(map(lambda x: self.type.partial_make(x), args))
+      rv = das.types.Sequence(list(map(lambda x: self.type.partial_make(x), args)))
       rv._set_schema_type(self)
       return rv
 
@@ -627,10 +626,10 @@ class Tuple(TypeValidator):
          self._validate_self(value)
          n = len(value)
          tmp = [None] * n
-         for i in xrange(n):
+         for i in range(n):
             try:
                tmp[i] = self.types[i].validate(value[i])
-            except ValidationError, e:
+            except ValidationError as e:
                raise ValidationError("Invalid tuple element: %s" % e)
          rv = das.types.Tuple(tmp)
          rv._set_schema_type(self)
@@ -651,7 +650,7 @@ class Tuple(TypeValidator):
          if len(_st.types) != len(self.types):
             return False
          else:
-            for i in xrange(len(self.types)):
+            for i in range(len(self.types)):
                if not self.types[i].is_type_compatible(_st.types[i]):
                   return False
             else:
@@ -728,13 +727,13 @@ class Struct(TypeValidator, dict):
             if das.__verbose__:
                das.print_once("[das] '%s' treated as a standard field for Struct type. Use '__%s__' to set schema type's attribute" % (name, name))
             del(kwargs[name])
-      removedItems = removedValues.items()
+      removedItems = list(removedValues.items())
 
       super(Struct, self).__init__(default=None, description=__description__, editable=__editable__, hidden=__hidden__, __properties__=__properties__, **kwargs)
 
       # Keep mapping of aliases
       self._aliases = {}
-      for k, v in (self.items() + removedItems):
+      for k, v in list(self.items()) + removedItems:
          aliasname = Alias.Name(v)
          if aliasname is not None:
             self._aliases[k] = aliasname
@@ -762,14 +761,14 @@ class Struct(TypeValidator, dict):
       # As some fields were removed from kwargs to avoid conflict with
       #   TypeValidator class initializer, add them back at last
       # Adding them before may cause problems as __setitem__ is triggered
-      for name, value in removedValues.iteritems():
+      for name, value in removedValues.items():
          self[name] = value
 
    def _fix_order(self, order, extraItems=None):
-      keys = [k for k, _ in (self.items() + (extraItems or [])) if not k in self._aliases]
+      keys = [k for k, _ in list(self.items()) + list(extraItems or []) if k not in self._aliases]
       if order is not None:
          self._original_order = list(order)
-         self._order = filter(lambda x: x in keys, self._original_order)
+         self._order = list(filter(lambda x: x in keys, self._original_order))
          for n in keys:
             if not n in order:
                self._order.append(n)
@@ -800,7 +799,7 @@ class Struct(TypeValidator, dict):
 
       # Check for conflicting aliases
       aliases = self._aliases.copy()
-      for n, a in st._aliases.iteritems():
+      for n, a in st._aliases.items():
          if n in self.ordered_keys():
             raise Exception("Cannot inherit schema type %s (alias %s -> %s conflicting with field)" % (repr(name), repr(n), repr(a)))
          if n in aliases:
@@ -841,7 +840,7 @@ class Struct(TypeValidator, dict):
          raise ValidationError("Expected a dict value, got %s" % type(value).__name__)
       allfound = True
       aliasvalues = {}
-      for k, v in self.iteritems():
+      for k, v in self.items():
          aliasname = self._aliases.get(k, None)
          if aliasname is not None and k in value:
             if aliasname in aliasvalues:
@@ -849,7 +848,7 @@ class Struct(TypeValidator, dict):
                   raise ValidationError("Conflicting alias values for '%s'" % aliasname)
             else:
                aliasvalues[aliasname] = value[k]
-      for k, v in self.iteritems():
+      for k, v in self.items():
          # Don't check aliases
          if k in self._aliases:
             continue
@@ -867,7 +866,7 @@ class Struct(TypeValidator, dict):
             raise ValidationError("Conflicting alias values for '%s'" % k)
       # Ignore new keys only in compatibility mode if all base keys are fullfilled (forward compatibility)
       if not self.CompatibilityMode or not allfound:
-         for k, _ in value.iteritems():
+         for k, _ in value.items():
             if not k in self:
                raise ValidationError("Unknown key '%s'" % k)
       return value
@@ -895,7 +894,7 @@ class Struct(TypeValidator, dict):
          actualkeys = set([item for item in value])
          rv = das.types.Struct()
          # don't set schema type just yet
-         for k, v in self.iteritems():
+         for k, v in self.items():
             # don't add aliases to dictionary
             deprecated = isinstance(v, Deprecated)
             aliasname = Alias.Name(v)
@@ -911,10 +910,10 @@ class Struct(TypeValidator, dict):
                   message = ("[das] Field %s is deprecated" % repr(k) if not v.message else v.message)
                   das.print_once(message)
                rv[k] = vv
-            except KeyError, e:
+            except KeyError as e:
                if not isinstance(v, Optional):
                   raise ValidationError("Invalid value for key '%s': %s" % (k, e))
-            except ValidationError, e:
+            except ValidationError as e:
                raise ValidationError("Invalid value for key '%s': %s" % (k, e))
          rv._set_schema_type(self)
          return rv
@@ -926,7 +925,7 @@ class Struct(TypeValidator, dict):
       return self
 
    def _aliased_type(self, nameOrType):
-      if isinstance(nameOrType, basestring):
+      if isinstance(nameOrType, str):
          vt = self[nameOrType]
       elif isinstance(nameOrType, TypeValidator):
          vt = nameOrType
@@ -936,7 +935,7 @@ class Struct(TypeValidator, dict):
       return (vt if an is None else self[an])
 
    def _is_alias(self, nameOrType):
-      if isinstance(nameOrType, basestring):
+      if isinstance(nameOrType, str):
          vt = self[nameOrType]
       elif isinstance(nameOrType, TypeValidator):
          vt = nameOrType
@@ -954,14 +953,12 @@ class Struct(TypeValidator, dict):
          if vtype is None:
             return False
          else:
-            # st is supposedly the type of the key
             return vtype.real_type(parent=self).is_type_compatible(st)
       else:
          if not super(Struct, self).is_type_compatible(st, key=key, index=index):
             return False
          _st = st.real_type()
-         for k, v in self.iteritems():
-            # don't add aliases to dictionary
+         for k, v in self.items():
             _vt0 = v.real_type(parent=self)
             if not k in _st:
                # only error if k is not an optional field
@@ -975,7 +972,7 @@ class Struct(TypeValidator, dict):
                if not self._is_optional(v) and _st._is_optional(_st[k]):
                   return False
          # check for any fields in _st not in self
-         for k, v in _st.iteritems():
+         for k, v in _st.items():
             if _st._is_alias(v):
                continue
             if not k in self:
@@ -1006,7 +1003,7 @@ class Struct(TypeValidator, dict):
    def make_default(self):
       if not self.default_validated and self.default is None:
          self.default = das.types.Struct()
-         for k, t in self.iteritems():
+         for k, t in self.items():
             if isinstance(t, (Alias, Optional)):
                continue
             self.default[k] = t.make_default()
@@ -1015,7 +1012,7 @@ class Struct(TypeValidator, dict):
 
    def make(self, *args, **kwargs):
       rv = self.make_default()
-      for k, v in kwargs.iteritems():
+      for k, v in kwargs.items():
          setattr(rv, k, v)
       return rv
 
@@ -1038,7 +1035,7 @@ class Struct(TypeValidator, dict):
          raise ValidationError("Expected a dict value, got %s" % type(args).__name__)
 
       rv = self.make_default()
-      for k, v in args.iteritems():
+      for k, v in args.items():
          rv[k] = self[k].partial_make(v)
 
       return rv
@@ -1058,7 +1055,7 @@ class Struct(TypeValidator, dict):
       if self._original_order:
          s += "%s__order__=%s" % (sep, repr(self._original_order))
       if self._properties["extensions"]:
-         s += "%s__extends__=%s" % (sep, repr(self._properties["extensions"].keys()))
+         s += "%s__extends__=%s" % (sep, repr(list(self._properties["extensions"].keys())))
       if self.description:
          s += "%s__description__=%s" % (sep, repr(self.description))
       return s + ")"
@@ -1066,7 +1063,7 @@ class Struct(TypeValidator, dict):
    def _update_internals(self):
       keys = [k for k, _ in self.items() if not k in self._aliases]
       if self._original_order:
-         self._order = filter(lambda x: x in keys, self._original_order)
+         self._order = list(filter(lambda x: x in keys, self._original_order))
          for n in keys:
             if not n in self._original_order:
                self._order.append(n)
@@ -1103,9 +1100,8 @@ class Struct(TypeValidator, dict):
       self._update_internals()
 
    def copy(self):
-      # self.load_extensions()
       kwargs = {}
-      for k, v in self.iteritems():
+      for k, v in self.items():
          kwargs[k] = v.copy()
       return Struct(__description__=self.description, __editable__=self.editable,
                     __hidden__=self.hidden, __order__=self._original_order,
@@ -1130,7 +1126,7 @@ class Dict(TypeValidator):
       self.ktype = ktype
       self.vtype = vtype
       self.vtypeOverrides = {}
-      for k, v in kwargs.iteritems():
+      for k, v in kwargs.items():
          self.vtypeOverrides[k] = v
 
    def _validate_self(self, value):
@@ -1148,12 +1144,12 @@ class Dict(TypeValidator):
          for k in value:
             try:
                ak = self.ktype.validate(k)
-            except ValidationError, e:
+            except ValidationError as e:
                raise ValidationError("Invalid key value '%s': %s" % (k, e))
             try:
                sk = str(ak)
                rv[ak] = self.vtypeOverrides.get(sk, self.vtype).validate(value[k])
-            except ValidationError, e:
+            except ValidationError as e:
                raise ValidationError("Invalid value for key '%s': %s" % (k, e))
          rv._set_schema_type(self)
          return rv
@@ -1163,7 +1159,7 @@ class Dict(TypeValidator):
       self.ktype = das.decode(self.ktype, encoding)
       self.vtype = das.decode(self.vtype, encoding)
       vtypeOverrides = {}
-      for k, v in self.vtypeOverrides.iteritems():
+      for k, v in self.vtypeOverrides.items():
          vtypeOverrides[das.decode(k, encoding)] = das.decode(v, encoding)
       self.vtypeOverrides = vtypeOverrides
       return self
@@ -1179,10 +1175,10 @@ class Dict(TypeValidator):
             return False
          if not self.vtype.is_type_compatible(_st.vtype):
             return False
-         for k, v in self.vtypeOverrides.iteritems():
+         for k, v in self.vtypeOverrides.items():
             if not v.is_type_compatible(_st.vtypeOverrides.get(k, _st.vtype)):
                return False
-         for k, v in _st.vtypeOverrides.iteritems():
+         for k, v in _st.vtypeOverrides.items():
             if k in self.vtypeOverrides:
                continue
             elif not self.vtype.is_type_compatible(v):
@@ -1210,14 +1206,14 @@ class Dict(TypeValidator):
 
       rv = das.types.Dict()
 
-      for k, v in args.iteritems():
+      for k, v in args.items():
          rv[self.ktype.validate(k)] = self.vtype.partial_make(v)
       rv._set_schema_type(self)
       return rv
 
    def __repr__(self):
       s = "Dict(ktype=%s, vtype=%s" % (self.ktype, self.vtype)
-      for k, v in self.vtypeOverrides.iteritems():
+      for k, v in self.vtypeOverrides.items():
          s += ", %s=%s" % (k, v)
       if self.default is not None:
          s += ", __default__=%s" % self.default
@@ -1227,7 +1223,7 @@ class Dict(TypeValidator):
 
    def copy(self):
       kwargs = {}
-      for k, v in self.vtypeOverrides.iteritems():
+      for k, v in self.vtypeOverrides.items():
          kwargs[k] = v.copy()
       return Dict(self.ktype.copy(), self.vtype.copy(),
                   __default__=self.default, __description__=self.description,
@@ -1244,7 +1240,7 @@ class DynamicDict(Dict):
 
 class Class(TypeValidator):
    def __init__(self, klass, default=None, description=None, editable=True, hidden=False, __properties__=None):
-      if not isinstance(klass, (str, unicode)):
+      if not isinstance(klass, str):
          self.klass = self._validate_class(klass)
       else:
          self.klass = self._class(klass)
@@ -1265,7 +1261,7 @@ class Class(TypeValidator):
          if c is None:
             g = globals()
             if not i in g:
-               c = imp.load_module(i, *imp.find_module(i))
+               c = importlib.import_module(i)
             else:
                c = globals()[i]
          else:
@@ -1274,7 +1270,7 @@ class Class(TypeValidator):
 
    def _validate_self(self, value):
       if not isinstance(value, self.klass):
-         if isinstance(value, basestring) and hasattr(self.klass, "string_to_value"):
+         if isinstance(value, str) and hasattr(self.klass, "string_to_value"):
             try:
                newval = self.klass()
                newval.string_to_value(value)
@@ -1335,7 +1331,7 @@ class Or(TypeValidator):
             try:
                rv = typ._validate_self(value)
                break
-            except ValidationError, e:
+            except ValidationError as e:
                continue
          Struct.CompatibilityMode = True
          if rv is not None:
@@ -1344,11 +1340,11 @@ class Or(TypeValidator):
       for typ in self.types:
          try:
             return typ._validate_self(value)
-         except ValidationError, e:
+         except ValidationError as e:
             emsgs.append(str(e))
             continue
       emsg = "Value of type %s doesn't match any of the allowed types" % type(value).__name__
-      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in xrange(len(emsgs))])
+      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in range(len(emsgs))])
       raise ValidationError(emsg)
 
    def _validate(self, value, key=None, index=None):
@@ -1359,7 +1355,7 @@ class Or(TypeValidator):
             try:
                rv = typ.validate(value, key=key, index=index)
                break
-            except ValidationError, e:
+            except ValidationError as e:
                continue
          Struct.CompatibilityMode = True
          if rv is not None:
@@ -1368,11 +1364,11 @@ class Or(TypeValidator):
       for typ in self.types:
          try:
             return typ.validate(value, key=key, index=index)
-         except ValidationError, e:
+         except ValidationError as e:
             emsgs.append(str(e))
             continue
       emsg = "Value of type %s doesn't match any of the allowed types" % type(value).__name__
-      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in xrange(len(emsgs))])
+      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in range(len(emsgs))])
       raise ValidationError(emsg)
 
    def is_type_compatible(self, st, key=None, index=None):
@@ -1422,11 +1418,11 @@ class Or(TypeValidator):
       for typ in self.types:
          try:
             return typ.make(*args, **kwargs)
-         except ValidationError, e:
+         except ValidationError as e:
             emsgs.append(str(e))
 
       emsg = "Cannot make any of the allowed types from arguments (args=%s, kwargs=%s)" % (repr(args), repr(kwargs))
-      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in xrange(len(emsgs))])
+      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in range(len(emsgs))])
       raise ValidationError(emsg)
 
    def conform(self, args, fill=False):
@@ -1434,11 +1430,11 @@ class Or(TypeValidator):
       for typ in self.types:
          try:
             return typ.conform(args, fill=fill)
-         except ValidationError, e:
+         except ValidationError as e:
             emsgs.append(str(e))
 
       emsg = "Cannot conform to any of the allowed types (args=%s, fill=%s)" % (repr(args), repr(fill))
-      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in xrange(len(emsgs))])
+      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in range(len(emsgs))])
       raise ValidationError(emsg)
 
    def partial_make(self, args):
@@ -1446,11 +1442,11 @@ class Or(TypeValidator):
       for typ in self.types:
          try:
             return typ.partial_make(args)
-         except Exception, e:
+         except Exception as e:
             emsgs.append(str(e))
 
       emsg = "Value of type %s doesn't match any of the allowed types" % type(args).__name__
-      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in xrange(len(emsgs))])
+      emsg += "".join(["\n  Type %d error: %s" % (x, emsgs[x]) for x in range(len(emsgs))])
       raise ValidationError(emsg)
 
    def __repr__(self):

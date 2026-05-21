@@ -9,7 +9,7 @@
     'given': 'homer',
     'family': 'simpson'
   },
-  'age': 38L,
+  'age': 38,
   'gender': 'male',
   'family': [
     {
@@ -28,7 +28,7 @@
           'given': 'bart',
           'family': 'simpson'
         },
-        'age': 10L,
+        'age': 10,
         'gender': 'male'
       },
       'relation': 'child'
@@ -49,7 +49,7 @@
           'given': 'Maggie',
           'family': 'simpson'
         },
-        'age': 1L,
+        'age': 1,
         'gender': 'female'
       },
       'relation': 'child'

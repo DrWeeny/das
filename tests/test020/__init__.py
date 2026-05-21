@@ -153,7 +153,7 @@ class TestCase(unittest.TestCase):
                   raise Exception("No less than 1 key")
                elif len(self) > 3:
                   raise Exception("No more than 3 keys")
-               for k, _ in self.iteritems():
+               for k, _ in self.items():
                   x, y = k
                   if x < 0 or y < 0:
                      raise Exception("No negative numbers in key")

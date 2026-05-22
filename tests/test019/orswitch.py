@@ -68,14 +68,14 @@ class Test(das.Mixin):
          hasMarginPresets = hasattr(self, "marginPresets")
 
          if hasResolutionsWithMargins:
-            for name, res in self.resolutionsWithMargins.iteritems():
+            for name, res in self.resolutionsWithMargins.items():
                scl = None
                if hasMarginPresets and name in self.marginPresets:
                   scl = self.marginPresets[name]
                self.set_margin(name, resolution=res, scale=scl)
 
          if hasMarginPresets:
-            for name, scl in self.marginPresets.iteritems():
+            for name, scl in self.marginPresets.items():
                if hasResolutionsWithMargins and name in self.resolutionsWithMargins:
                   continue
                self.set_margin(name, scale=scl)

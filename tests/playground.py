@@ -89,7 +89,7 @@ def test_mixin1():
    das.write(cs, "./out.tl")
    c = das.copy(cs)
    das.pprint(c)
-   for k, v in c.iteritems():
+   for k, v in c.items():
       print("%s = %s" % (k, v))
    os.remove("./out.tl")
 
@@ -135,14 +135,14 @@ def test_mixin2():
    data = das.make_default("timeline.ClipSource")
    try:
       data.pprint()
-   except Exception, e:
+   except Exception as e:
       print(str(e))
    das.mixin.bind([Fn, Fn2], data)
    das.mixin.bind(Fn2, data)
    das.mixin.bind(Fn, data)
    try:
       das.mixin.bind(Fn3, data)
-   except Exception, e:
+   except Exception as e:
       print(str(e))
    data.pprint()
    c = data._copy()
@@ -151,7 +151,7 @@ def test_mixin2():
    c.echo()
    try:
       c.pprint()
-   except Exception, e:
+   except Exception as e:
       print(str(e))
 
 

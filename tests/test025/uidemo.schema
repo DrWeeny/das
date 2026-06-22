@@ -1,0 +1,19 @@
+# name: uidemo
+# version: 1.0
+#
+# Minimal schema to exercise das.ui (the framework-neutral UI overlay).
+{
+   "Item": Struct(
+      name = String(),
+      path = String(),
+   ),
+
+   "Doc": Struct(
+      title   = String(),
+      body    = String(default=""),
+      count   = Integer(default=0, min=0, max=10),
+      enabled = Boolean(default=True),
+      tags    = Set(String()),
+      items   = Sequence(SchemaType("Item")),
+   ),
+}

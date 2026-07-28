@@ -44,6 +44,26 @@ class TypeValidator(object):
       if name in self._properties:
          del(self._properties[name])
 
+   # Properties that are runtime bookkeeping rather than authored metadata:
+   # never serialized back to schema text ('extensions' is emitted by Struct
+   # as __extends__, mixins are registered separately and not literal-safe)
+   NonReprProperties = ("extensions", "mixins")
+
+   def _repr_extras(self, sep, dunder=False):
+      # Common trailing arguments shared by every schema type repr so that
+      # UI metadata survives write_schema() round-trips
+      s = ""
+      if not self.editable:
+         s += "%s%s=False" % (sep, "__editable__" if dunder else "editable")
+         sep = ", "
+      if self.hidden:
+         s += "%s%s=True" % (sep, "__hidden__" if dunder else "hidden")
+         sep = ", "
+      props = dict((k, v) for k, v in self._properties.items() if k not in self.NonReprProperties)
+      if props:
+         s += "%s__properties__=%s" % (sep, repr(props))
+      return s
+
    def value_to_string(self, v):
       return repr(self.validate(v))
 
@@ -115,6 +135,19 @@ class TypeValidator(object):
    def copy(self):
       return TypeValidator(default=self.default, description=self.description, editable=self.editable, hidden=self.hidden, __properties__=self.get_properties())
 
+   def save(self, path, typename=None, name=None, version=None, author=None):
+      """Write this type alone to a .schema file (see das.write_schema).
+
+      'typename' defaults to the tail of the type's registered name when it
+      is already part of a loaded schema, and is required otherwise.
+      """
+      if typename is None:
+         regname = das.get_schema_type_name(self)
+         if not regname:
+            raise Exception("Type is not registered in any loaded schema, please provide 'typename'")
+         typename = regname.split(".")[-1]
+      return das.write_schema(path, name=name, version=version, author=author, **{typename: self})
+
    def __str__(self):
       return self.__repr__()
 
@@ -158,6 +191,8 @@ class Boolean(TypeValidator):
          sep = ", "
       if self.description:
          s += "%sdescription=%s" % (sep, repr(self.description))
+         sep = ", "
+      s += self._repr_extras(sep)
       return s + ")"
 
    def copy(self):
@@ -248,6 +283,8 @@ class Integer(TypeValidator):
          sep = ", "
       if self.description:
          s += "%sdescription=%s" % (sep, repr(self.description))
+         sep = ", "
+      s += self._repr_extras(sep)
       return s + ")"
 
    def copy(self):
@@ -306,6 +343,8 @@ class Real(TypeValidator):
          sep = ", "
       if self.description:
          s += "%sdescription=%s" % (sep, repr(self.description))
+         sep = ", "
+      s += self._repr_extras(sep)
       return s + ")"
 
    def copy(self):
@@ -418,6 +457,8 @@ class String(TypeValidator):
          sep = ", "
       if self.description:
          s += "%sdescription=%s" % (sep, repr(self.description))
+         sep = ", "
+      s += self._repr_extras(sep)
       return s + ")"
 
    def copy(self):
@@ -492,6 +533,7 @@ class Set(TypeValidator):
          s += ", default=%s" % self.default
       if self.description:
          s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
       return s + ")"
 
    def copy(self):
@@ -600,6 +642,7 @@ class Sequence(TypeValidator):
             s += "%smax_size=%d" % (sep, self.max_size)
       if self.description:
          s += "%sdescription=%s" % (sep, repr(self.description))
+      s += self._repr_extras(sep)
       return s + ")"
 
    def copy(self):
@@ -703,6 +746,8 @@ class Tuple(TypeValidator):
          sep = ", "
       if self.description:
          s += "%sdescription=%s" % (sep, repr(self.description))
+         sep = ", "
+      s += self._repr_extras(sep)
       return s + ")"
 
    def copy(self):
@@ -720,6 +765,11 @@ class Struct(TypeValidator, dict):
 
    def __init__(self, __description__=None, __editable__=True, __hidden__=False, __order__=None, __extends__=None, __properties__=None, **kwargs):
       # MRO: TypeValidator, dict, object
+      # Python 3.7+ guarantees **kwargs preserves the call-site order: when no
+      # explicit __order__ is given, fields keep their authored order instead
+      # of falling back to alphabetical.
+      if __order__ is None:
+         __order__ = list(kwargs.keys())
       removedValues = {}
       for name in ("default", "description", "editable", "hidden"):
          if name in kwargs:
@@ -1054,10 +1104,14 @@ class Struct(TypeValidator, dict):
          sep = ", "
       if self._original_order:
          s += "%s__order__=%s" % (sep, repr(self._original_order))
+         sep = ", "
       if self._properties["extensions"]:
          s += "%s__extends__=%s" % (sep, repr(list(self._properties["extensions"].keys())))
+         sep = ", "
       if self.description:
          s += "%s__description__=%s" % (sep, repr(self.description))
+         sep = ", "
+      s += self._repr_extras(sep, dunder=True)
       return s + ")"
 
    def _update_internals(self):
@@ -1219,6 +1273,7 @@ class Dict(TypeValidator):
          s += ", __default__=%s" % self.default
       if self.description:
          s += ", __description__=%s" % repr(self.description)
+      s += self._repr_extras(", ", dunder=True)
       return s + ")"
 
    def copy(self):
@@ -1308,6 +1363,7 @@ class Class(TypeValidator):
       s = "Class(\"%s%s\"" % (cmod, self.klass.__name__)
       if self.description:
          s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
       s += ")"
       return s
 
@@ -1455,6 +1511,7 @@ class Or(TypeValidator):
          s += ", default=%s" % repr(self.default)
       if self.description:
          s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
       return s + ")"
 
    def copy(self):
@@ -1508,7 +1565,11 @@ class Optional(TypeValidator):
       return self.type.string_to_value(v)
 
    def __repr__(self):
-      return "Optional(type=%s)" % self.type
+      s = "Optional(type=%s" % self.type
+      if self.description:
+         s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
+      return s + ")"
 
    def copy(self):
       return Optional(self.type.copy(), description=self.description, editable=self.editable, hidden=self.hidden, __properties__=self.get_properties())
@@ -1542,7 +1603,13 @@ class Deprecated(Optional):
       return None
 
    def __repr__(self):
-      return "Deprecated(type=%s)" % self.type
+      s = "Deprecated(type=%s" % self.type
+      if self.message:
+         s += ", message=%s" % repr(self.message)
+      if self.description:
+         s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
+      return s + ")"
 
    def copy(self):
       return Deprecated(self.type.copy(), message=self.message, description=self.description, editable=self.editable, hidden=self.hidden, __properties__=self.get_properties())
@@ -1575,7 +1642,13 @@ class Empty(TypeValidator):
       return self.validate(None)
 
    def __repr__(self):
-      return "Empty()"
+      s = "Empty("
+      sep = ""
+      if self.description:
+         s += "description=%s" % repr(self.description)
+         sep = ", "
+      s += self._repr_extras(sep)
+      return s + ")"
 
    def copy(self):
       return Empty(description=self.description, editable=self.editable, hidden=self.hidden, __properties__=self.get_properties())
@@ -1624,7 +1697,11 @@ class Alias(TypeValidator):
       return None
 
    def __repr__(self):
-      return "Alias(%s)" % repr(self.name)
+      s = "Alias(%s" % repr(self.name)
+      if self.description:
+         s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
+      return s + ")"
 
    def copy(self):
       return Alias(self.name, description=self.description, editable=self.editable, hidden=self.hidden, __properties__=self.get_properties())
@@ -1674,7 +1751,10 @@ class SchemaType(TypeValidator):
       s = "SchemaType('%s'" % self.name
       if self.default is not None:
          s += ", default=%s" % str(self.default)
+      if self.description:
+         s += ", description=%s" % repr(self.description)
+      s += self._repr_extras(", ")
       return s + ")"
 
    def copy(self):
-      return SchemaType(self.name, default=self.default, description=self.description, editable=self.editable, __properties__=self.get_properties())
+      return SchemaType(self.name, default=self.default, description=self.description, editable=self.editable, hidden=self.hidden, __properties__=self.get_properties())

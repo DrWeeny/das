@@ -154,6 +154,41 @@ class Schema(object):
             return k
       return ""
 
+   def default_type(self):
+      """The schema's unambiguous 'entry point' type name, or None.
+
+      A schema with a single type, or a single declared master type
+      ('# master_types:' metadata), has one; anything else is ambiguous.
+      """
+      names = self.list_types(masters_only=True)
+      if len(names) == 1:
+         return names[0]
+      return None
+
+   def _resolve_type(self, name):
+      if name is None:
+         name = self.default_type()
+         if name is None:
+            raise Exception("Schema '%s' defines several types (%s): specify one, or declare a master type ('# master_types:' metadata)" % (self.name, ", ".join(self.list_types())))
+      elif not "." in name:
+         name = "%s.%s" % (self.name, name)
+      t = self.get_type(name)
+      if t is None:
+         raise UnknownSchemaError(name)
+      return t
+
+   def make_default(self, name=None):
+      """Default-initialized data for one of this schema's types.
+
+      'name' can be omitted when the schema has an unambiguous entry point
+      (see default_type), and doesn't need the schema prefix.
+      """
+      return self._resolve_type(name).make_default()
+
+   def make(self, _name=None, *args, **kwargs):
+      """Like make_default, but field values can be passed as keywords."""
+      return self._resolve_type(_name).make(*args, **kwargs)
+
 
 class SchemaLocation(object):
    def __init__(self, path=None, dont_load=False):

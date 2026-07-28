@@ -109,3 +109,6 @@ ENV/
 /das.env.tmp
 /.vscode
 /eco.out
+/demo
+CLAUDE.md
+ROADMAP.md

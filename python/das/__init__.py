@@ -44,6 +44,40 @@ def load_schemas(paths=None, force=False):
    SchemaTypesRegistry.instance.load_schemas(paths=paths, force=force)
 
 
+def load_schema(path, force=False):
+   """Load a single .schema file and return its Schema object.
+
+   The file's directory is added to the registry (incrementally, keeping
+   cross-schema references resolvable), then the file's schema is returned:
+
+      schema = das.load_schema("D:/tools/render.schema")
+      job = schema.make_default()
+      job.renderer = "arnold"      # validated on assignment
+
+   With several types in the file, make_default() picks the schema's master
+   type ('# master_types: <name>' metadata, see das.write_schema) and needs
+   an explicit type name otherwise.
+   """
+   path = os.path.abspath(path)
+   if not os.path.isfile(path):
+      raise Exception("No such schema file: %s" % path)
+   load_schemas(paths=[os.path.dirname(path)], force=force)
+   name = read_meta(path).get("name", None)
+   if not name:
+      name = os.path.splitext(os.path.basename(path))[0]
+   if not SchemaTypesRegistry.instance.has_schema(name):
+      # the file's directory was already registered before the file existed:
+      # a full rescan is the only way to pick the newcomer up
+      load_schemas(force=True)
+   sch = SchemaTypesRegistry.instance.get_schema(name)
+   spath = os.path.abspath(sch.path) if sch.path else ""
+   if os.path.normcase(spath) != os.path.normcase(path):
+      # the registry is keyed by schema name: a same-named schema from another
+      # location shadows the requested file -- say so instead of confusing later
+      print_once("[das] Warning: schema '%s' comes from %s, not the requested %s (same schema name registered from another location)" % (name, sch.path, path))
+   return sch
+
+
 def list_schemas():
    return SchemaTypesRegistry.instance.list_schemas()
 
@@ -1302,6 +1336,86 @@ def generate_empty_schema(path, name=None, version=None, author=None):
       f.write("# date: %s\n" % datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"))
       f.write("{\n")
       f.write("}\n\n")
+
+
+def write_schema(path, name=None, version=None, author=None, master_types=None, **types):
+   """Serialize schema type validators to a .schema file.
+
+   Each <typename>=<validator> keyword becomes a "<typename>": <definition>
+   entry of the written schema, loadable afterwards as '<name>.<typename>'.
+   (Because of that, 'path', 'name', 'version', 'author' and 'master_types'
+   cannot be used as type names.)
+
+   'master_types' (a type name or list of them) declares the schema's entry
+   point(s) in the file metadata: with a single master, loading the file with
+   das.load_schema gives no-argument make_default() / make().
+
+   SchemaType cross-references pointing to one of the types being written are
+   remapped to the target schema name; any other reference is kept as-is and
+   must be resolvable when the file gets loaded.
+
+   Notes:
+    - callable 'choices' are serialized by function name and won't resolve in
+      a standalone file (they require a sibling .py module listing them in
+      __all__)
+    - 'mixins' and Struct 'extensions' properties are not serialized (register
+      mixins from the sibling .py module instead)
+   """
+   if not types:
+      raise Exception("write_schema requires at least one <typename>=<validator> keyword argument")
+   if not name:
+      name = os.path.basename(path).split(".")[0]
+   if "." in name:
+      raise Exception("Schema name must not contain '.'")
+
+   if master_types is not None:
+      if isinstance(master_types, str):
+         master_types = [master_types]
+      for mt in master_types:
+         if not mt in types:
+            raise Exception("Master type '%s' is not among the written types" % mt)
+
+   remap = {}
+   for typename, typ in types.items():
+      if not isinstance(typ, schematypes.TypeValidator):
+         raise Exception("Invalid schema type for '%s' (expected a TypeValidator instance, got %s)" % (typename, type(typ).__name__))
+      newname = "%s.%s" % (name, typename)
+      oldname = get_schema_type_name(typ)
+      if oldname and oldname != newname:
+         remap["SchemaType('%s'" % oldname] = "SchemaType('%s'" % newname
+
+   refexp = re.compile(r"SchemaType\('([^']+)'")
+   bodies = {}
+   for typename, typ in types.items():
+      body = repr(typ)
+      for oldref, newref in remap.items():
+         body = body.replace(oldref, newref)
+      for ref in refexp.findall(body):
+         refschema, _, reftype = ref.partition(".")
+         if refschema == name:
+            if not reftype in types:
+               print_once("[das] Warning: %s.%s references unknown type %s" % (name, typename, repr(ref)))
+         elif not has_schema_type(ref):
+            print_once("[das] Warning: %s.%s references external type %s (not currently loaded, must be resolvable at load time)" % (name, typename, repr(ref)))
+      bodies[typename] = body
+
+   if not author:
+      author = os.environ.get("USER" if sys.platform != "win32" else "USERNAME", "")
+   with open(path, "w", encoding="utf-8", newline="\n") as f:
+      f.write("# encoding: utf8\n")
+      f.write("# name: %s\n" % name)
+      f.write("# version: %s\n" % (version if version else "1.0"))
+      f.write("# das_minimum_version: %s\n" % __version__)
+      if author:
+         f.write("# author: %s\n" % author)
+      if master_types:
+         f.write("# master_types: %s\n" % ", ".join(master_types))
+      f.write("# date: %s\n" % datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"))
+      f.write("{\n")
+      for typename, body in bodies.items():
+         f.write("   \"%s\": %s,\n" % (typename, body))
+      f.write("}\n")
+   return path
 
 
 def update_schema_metadata(path, name=None, version=None, author=None):

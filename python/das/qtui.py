@@ -1438,25 +1438,34 @@ if not NoUI:
          undoData = (das.copy(self.getData()) if pushUndo else None)
 
          oldvalue = item.data
-         # The following statement may fails because of validation
+         # `item.data` is only this row's cached value -- a plain attribute, so
+         # assigning it never validates anything. das gets its say below, when
+         # the value is written back into the PARENT container; if it refuses,
+         # the cache has to be rolled back or the row goes on displaying a value
+         # the document does not have.
          item.data = value
          item.update_multi_type_string()
          self.setMessage("")
          # Check whether we need to replace data reference in parent item, if any
          if item.parent is not None:
-            if item.parent.mapping:
-               item.parent.data[item.key] = item.data
-            elif item.parent.resizable:
-               if isinstance(item.parent.type, das.schematypes.Sequence):
-                  item.parent.data[item.row] = item.data
+            try:
+               if item.parent.mapping:
+                  item.parent.data[item.key] = item.data
+               elif item.parent.resizable:
+                  if isinstance(item.parent.type, das.schematypes.Sequence):
+                     item.parent.data[item.row] = item.data
+                  else:
+                     item.parent.data.remove(oldvalue)
+                     item.parent.data.add(item.data)
                else:
-                  item.parent.data.remove(oldvalue)
-                  item.parent.data.add(item.data)
-            else:
-               seq = list(item.parent.data)
-               seq[item.row] = item.data
-               #self.setData(self.parent(index), das.types.Tuple(seq), role)
-               self._setRawData(self.parent(index), das.types.Tuple(seq), pushUndo=False)
+                  seq = list(item.parent.data)
+                  seq[item.row] = item.data
+                  #self.setData(self.parent(index), das.types.Tuple(seq), role)
+                  self._setRawData(self.parent(index), das.types.Tuple(seq), pushUndo=False)
+            except Exception:
+               item.data = oldvalue
+               item.update_multi_type_string()
+               raise      # setData turns this into the error message + False
             # Force rebuild
             # (note: not necessary all the time, but to simplify logic)
             structureChanged = True

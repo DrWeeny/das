@@ -44,13 +44,13 @@ import sys
 import io
 import json
 
-from das.qtform._qtcompat import (  # noqa: E402
+from das._qtcompat import (  # noqa: E402
     QtWidgets, QApplication, QWidget, QMainWindow,
     QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
     QLabel, QLineEdit, QTextEdit, QPushButton, QComboBox, QCheckBox,
     QSpinBox, QDoubleSpinBox, QListWidget, QListWidgetItem,
     QGroupBox, QFrame, QMessageBox, QFont,
-    Qt, Signal, app_exec, pyside_version,
+    Qt, Signal, app_exec, pyside_version, connect_check_state,
 )
 
 import das  # noqa: E402
@@ -325,9 +325,11 @@ class ScalarField(QWidget):
 
         elif isinstance(t, st.Boolean):
             w = QCheckBox()
+            # isChecked() -> a real bool: the one check-state read that means
+            # the same thing on PySide2 and PySide6 (see das._qtcompat).
             self._get = w.isChecked
             self._set = lambda v: w.setChecked(bool(v))
-            w.stateChanged.connect(self.value_changed)
+            connect_check_state(w, self.value_changed)
 
         elif isinstance(t, st.Integer) and t.enum is not None:
             w = QComboBox()

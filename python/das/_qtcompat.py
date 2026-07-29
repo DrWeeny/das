@@ -113,6 +113,31 @@ def pyside_version():
     return {"PySide6": 6, "PySide2": 2}.get(_BINDING, 0)
 
 
+# ── enum rules (Qt6 / PySide6) ───────────────────────────────────────────────
+# Qt6 enums are real Python enums, not ints.  Two habits that worked under
+# PySide2 are silent bugs under PySide6, so they are banned in das:
+#
+#   if check_state:                  # Unchecked is an enum member -> ALWAYS true
+#   if state == 2:                   # an enum never equals an int -> always False
+#
+# Use the bool-returning API (`isChecked()`) or compare enum to enum
+# (`checkState() == Qt.Checked`), which is correct under both bindings.
+# Unscoped names (`Qt.Checked`, `QHeaderView.Interactive`) still resolve in
+# PySide6's forgiving mode, so they are fine; the *semantics* above are not.
+
+def connect_check_state(checkbox, slot):
+    """Connect a QCheckBox's state signal, whatever the binding calls it.
+
+    Qt 6.7 deprecated `stateChanged(int)` in favour of
+    `checkStateChanged(Qt::CheckState)` (it disappears in Qt 7); PySide2 has
+    only the former.  Callers take no argument, so either one will do.
+    """
+    signal = getattr(checkbox, "checkStateChanged", None)
+    if signal is None:
+        signal = checkbox.stateChanged
+    signal.connect(slot)
+
+
 def set_section_resize_mode(header, mode):
     """QHeaderView.setSectionResizeMode, whichever binding we are on.
 

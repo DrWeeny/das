@@ -46,3 +46,28 @@ class TestCase(unittest.TestCase):
       r0.defaultMargin = "none"
       self.assertEqual(r0.margin, "none")
 
+   def test3(self):
+      # bulk update through an alias key: _update used to translate the key
+      # before reading the source dict with it, raising KeyError('margin')
+      r = das.make_default("testalias.MyStruct")
+      r.update({"defaultMargin": "vertical"})
+      self.assertEqual(r.margin, "vertical")
+      # ... and through the aliased name itself
+      r.update({"margin": "horizontal"})
+      self.assertEqual(r.defaultMargin, "horizontal")
+      # key/value pair sequences take the same path
+      r.update([("defaultMargin", "both")])
+      self.assertEqual(r.margin, "both")
+
+   def test4(self):
+      # conform(fill=True) used to default the alias key as well as the field
+      # it points at, and then reject its own output with
+      # 'Conflicting alias values'
+      st = das.get_schema_type("testalias.MyStruct")
+      self.assertEqual(st.conform({"margin": "both"}, fill=True).margin, "both")
+      self.assertEqual(st.conform({"defaultMargin": "both"}, fill=True).margin, "both")
+      self.assertEqual(st.conform({}, fill=True).margin, "none")
+      # a real conflict is still caught
+      with self.assertRaises(das.ValidationError):
+         st.conform({"margin": "both", "defaultMargin": "none"}, fill=True)
+

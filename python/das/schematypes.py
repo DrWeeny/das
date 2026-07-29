@@ -1072,10 +1072,25 @@ class Struct(TypeValidator, dict):
 
       rv = type(args)()
 
+      # Aliases are alternative spellings, not fields. Two consequences for
+      # 'fill': never default an alias key itself (it would add a second value
+      # for the field it points at), and never default a field that an alias
+      # in 'args' already provides -- either one ends in 'Conflicting alias
+      # values'. Supplied alias keys are passed through untouched so that
+      # validate() resolves them, and still catches a genuine conflict.
+      aliased = set()
+      for a, k in self._aliases.items():
+         if a in args:
+            aliased.add(k)
+
       for k in self:
+         if k in self._aliases:
+            if k in args:
+               rv[k] = args[k]
+            continue
          if k in args:
             rv[k] = self[k].conform(args[k], fill=fill)
-         elif fill:
+         elif fill and k not in aliased:
             rv[k] = self[k].make_default()
 
       return self.validate(rv)

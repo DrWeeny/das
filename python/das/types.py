@@ -866,9 +866,12 @@ class Struct(TypeBase):
             a0 = args[0]
             if hasattr(a0, "keys"):
                for k in a0.keys():
-                  k = self._get_alias(k)
-                  self._check_reserved(k)
-                  self._dict[k] = self._adapt_value(a0[k], key=k)
+                  # keep the original key to read a0 from: _get_alias may
+                  # translate it ('__author' -> 'author') and a0 only has
+                  # the un-translated one
+                  ak = self._get_alias(k)
+                  self._check_reserved(ak)
+                  self._dict[ak] = self._adapt_value(a0[k], key=ak)
             else:
                for k, v in a0:
                   k = self._get_alias(k)

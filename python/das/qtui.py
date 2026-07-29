@@ -6,23 +6,32 @@ import math
 NoUI = False
 
 try:
-   import Qt # pylint: disable=import-error
-   from Qt import QtCore # pylint: disable=import-error
-   from Qt import QtGui # pylint: disable=import-error
-   from Qt import QtWidgets # pylint: disable=import-error
-   from Qt import QtCompat # pylint: disable=import-error
+   # One binding ladder for the whole codebase (Qt.py -> PySide6 -> PySide2),
+   # shared with das.qtform.  This module used to require the Qt.py shim and
+   # disabled itself without it, which made the tree editor unreachable on a
+   # plain PySide2/PySide6 install.
+   from das._qtcompat import (QtCore, QtGui, QtWidgets, QtCompat, qt_py, # pylint: disable=import-error
+                              binding_name, set_section_resize_mode)
 except Exception as e:
-   print("Failed to import Qt (%s)" % e)
+   print(f"Failed to import a Qt binding ({e})")
    NoUI = True
 
 
 if not NoUI:
    def IsPySide2():
-      if hasattr(Qt, "__version_info__"):
-         return Qt.__version_info__[0] >= 2
-      if hasattr(Qt, "IsPySide2"):
-         return Qt.IsPySide2
-      return False
+      """True when dataChanged carries the Qt5-style third argument (roles).
+
+      Through Qt.py, keep asking Qt.py itself -- it is the one that decides
+      what it normalises to.  Bound directly, PySide2 and PySide6 are both
+      Qt5-style, so the answer is simply yes.
+      """
+      if qt_py is not None:
+         if hasattr(qt_py, "__version_info__"):
+            return qt_py.__version_info__[0] >= 2
+         if hasattr(qt_py, "IsPySide2"):
+            return qt_py.IsPySide2
+         return False
+      return True
 
 
    class FieldFilter(object):
@@ -1646,7 +1655,7 @@ if not NoUI:
          self.setModel(self.model)
          self.expandedState = {}
          self.setItemDelegate(self.delegate)
-         QtCompat.setSectionResizeMode(self.header(), QtWidgets.QHeaderView.Interactive)
+         set_section_resize_mode(self.header(), QtWidgets.QHeaderView.Interactive)
          self.header().setStretchLastSection(False)
          self.header().setMinimumSectionSize(100)
          self.header().setContextMenuPolicy(QtCore.Qt.CustomContextMenu)

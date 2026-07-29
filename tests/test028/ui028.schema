@@ -1,0 +1,11 @@
+# name: ui028
+# version: 1.0
+#
+# Minimal schema to exercise das.qtform.StructForm.field().
+{
+   "Doc": Struct(
+      version = String(default="1.0"),
+      comment = String(default=""),
+      secret  = String(default=""),
+   ),
+}

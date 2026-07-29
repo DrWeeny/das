@@ -861,6 +861,17 @@ class StructForm(QWidget):
             form.addRow(lbl, row_widget)
             self._fields[k] = (editor, chk)
 
+    def field(self, key):
+        """The editor widget for `key`, or None if there is no such row.
+
+        For an embedding tool that only cares about one field: connect to that
+        widget's own `value_changed` instead of the form-wide one, which fires
+        for any edit and carries no arguments.  Returns None for an unknown key
+        *and* for a field the overlay hid -- a hidden field has no widget.
+        """
+        f = self._fields.get(key)
+        return None if f is None else f[0]
+
     def get_data(self):
         out = {}
         for k, (editor, chk) in self._fields.items():

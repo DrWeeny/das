@@ -1,0 +1,24 @@
+# name: ui029
+# version: 1.0
+#
+# Schema for the qtform "table" widget: a flat element struct (tableable) and
+# a nested one (must fall back), reached both as a Dict and as a Sequence.
+{
+   "Layer": Struct(
+      name     = String(),
+      renderer = String(default="arnold", choices=["arnold", "vray"]),
+      start    = Integer(default=1001, min=0, max=10000),
+      enabled  = Boolean(default=True),
+   ),
+
+   "Nested": Struct(
+      title = String(),
+      sub   = Struct(a=String()),
+   ),
+
+   "Doc": Struct(
+      named_layers = Dict(ktype=String(), vtype=SchemaType("Layer")),
+      layer_list   = Sequence(SchemaType("Layer")),
+      nested       = Dict(ktype=String(), vtype=SchemaType("Nested")),
+   ),
+}

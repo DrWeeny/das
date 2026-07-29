@@ -28,6 +28,11 @@ Widget mapping (type -> default widget; override per field via the overlay)
   Sequence(Struct)                 list of sub-forms (+/-)
   Dict(String, V)                  key/value rows (nested editors for struct V)
 
+Opt-in only (never chosen by default), for a Sequence/Dict of *flat* structs::
+
+  set_widget("table")              one row per element, one column per field
+                                   (a Dict also gets a leading "key" column)
+
 The overlay carries widget choice, options, order, labels and the UI-only
 `required` flag; a mandatory empty field gets a red border (purely visual --
 das validation is unchanged).  `__properties__={"widget": ...}` is still honored
@@ -775,20 +780,194 @@ class StructListField(QWidget):
             self._add_form(it)
 
 
+class StructTableField(QWidget):
+    """`Dict(String, Struct)` / `Sequence(Struct)` as a table: rows x columns.
+
+    Same data as `DictField` / `StructListField`, but every element is one ROW
+    and every field of the element struct is one COLUMN -- the shape you want
+    for a list of render layers, where stacked sub-forms scroll off the screen
+    and nothing lines up.  A Dict gets a leading "key" column (the row's name);
+    a Sequence has no such column, its rows are positional.
+
+    Opt-in via the overlay (`t.layers.set_widget("table")`) because it is only
+    readable when every element field is a scalar -- `make_editor` checks that
+    with `is_flat_struct` and falls back when it does not hold.
+
+    Cells are ordinary `ScalarField`s, so a column inherits the widget its das
+    type implies: a `choices` column is a combo box, a bounded Integer column
+    a spin box, a Boolean column a checkbox -- and a required-but-empty cell
+    still gets the red border.
+    """
+    value_changed = Signal()
+
+    def __init__(self, container_type, ui_schema=None, parent=None):
+        super().__init__(parent)
+        self.ui_schema = ui_schema
+        self.keyed = isinstance(container_type, st.Dict)
+        elem = container_type.vtype if self.keyed else container_type.type
+        self.elem_type, _, _ = resolve(elem)
+        self._columns = self._build_columns()
+        self._rows = []          # [(key_edit_or_None, {field_name: ScalarField})]
+        self._build()
+
+    # -- columns come from the element struct, filtered/ordered by the overlay
+    def _build_columns(self):
+        tname = das.get_schema_type_name(self.elem_type) if self.ui_schema else None
+        uitype = self.ui_schema.for_type(tname) if (self.ui_schema and tname) else None
+
+        keys = [k for k in self.elem_type.ordered_keys()
+                if not st.Alias.Check(self.elem_type[k])]
+        if uitype is not None:
+            order = uitype.order()
+            keys = [k for k in order if k in keys] + [k for k in keys if k not in order]
+
+        columns = []
+        for k in keys:
+            fui = uitype.field(k) if uitype is not None else None
+            if fui is not None and fui.hidden:
+                continue
+            real, optional, nullable = resolve(self.elem_type[k])
+            required = not optional and not nullable
+            if fui is not None and fui.required is not None:
+                required = fui.required
+            label = fui.label if (fui is not None and fui.label) else k
+            columns.append((k, real, nullable, required, label, fui))
+        return columns
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        headers = ([] if not self.keyed else ["key"]) \
+            + [c[4] for c in self._columns] + [""]
+        self._table = QtWidgets.QTableWidget(0, len(headers), self)
+        self._table.setHorizontalHeaderLabels(headers)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        header = self._table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        lay.addWidget(self._table)
+
+        add = QPushButton("+ add row")
+        add.clicked.connect(lambda: self._add_row())
+        lay.addWidget(add)
+
+    def _add_row(self, key="", value=None):
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        col = 0
+
+        ke = None
+        if self.keyed:
+            ke = QLineEdit(str(key))
+            ke.setPlaceholderText("key")
+            ke.textChanged.connect(self.value_changed)
+            self._table.setCellWidget(row, col, ke)
+            col += 1
+
+        fields = {}
+        for name, real, nullable, required, _label, fui in self._columns:
+            f = ScalarField(real, nullable=nullable, required=required, field_ui=fui)
+            if value is not None and name in value:
+                f.set_value(value[name])
+            f.value_changed.connect(self.value_changed)
+            self._table.setCellWidget(row, col, f)
+            fields[name] = f
+            col += 1
+
+        rm = QPushButton("−")
+        rm.setFixedWidth(24)
+        rm.clicked.connect(lambda: self._remove(rm))
+        self._table.setCellWidget(row, col, rm)
+
+        self._rows.append((ke, fields))
+        self._table.resizeRowsToContents()
+        self.value_changed.emit()
+
+    def _remove(self, button):
+        # the row index is looked up now, not captured: removing a row shifts
+        # every index below it, so a captured one would delete the wrong row.
+        for row in range(self._table.rowCount()):
+            if self._table.cellWidget(row, self._table.columnCount() - 1) is button:
+                self._table.removeRow(row)
+                del self._rows[row]
+                self.value_changed.emit()
+                return
+
+    def get_value(self):
+        if self.keyed:
+            out = {}
+            for ke, fields in self._rows:
+                k = ke.text().strip()
+                if k:
+                    out[k] = {n: f.get_value() for n, f in fields.items()}
+            return out
+        return [{n: f.get_value() for n, f in fields.items()}
+                for _, fields in self._rows]
+
+    def set_value(self, data):
+        while self._table.rowCount():
+            self._table.removeRow(0)
+        self._rows = []
+        if self.keyed:
+            for k, v in (data or {}).items():
+                self._add_row(k, v)
+        else:
+            for v in (data or []):
+                self._add_row(value=v)
+
+
 # ---------------------------------------------------------------------------
 #  struct form (recursive)
 # ---------------------------------------------------------------------------
+
+def is_flat_struct(t):
+    """True if every field of struct `t` renders as a single scalar widget.
+
+    A table can only line fields up in columns if none of them is itself a
+    struct/sequence/dict -- there is no sane column for a nested document.
+    """
+    if not is_struct(t):
+        return False
+    for k in t.ordered_keys():
+        if st.Alias.Check(t[k]):
+            continue
+        real, _, _ = resolve(t[k])
+        if is_struct(real) or isinstance(real, (st.Sequence, st.Set, st.Dict)):
+            return False
+    return True
+
+
+def wants_table(container_type, field_ui):
+    """Table is opt-in: asked for by the overlay, or baked as a schema property.
+
+    Silently falls back when the element type is not flat -- a wrong hint
+    should cost a nicer layout, never the ability to edit the document.
+    """
+    asked = (getattr(field_ui, "widget", None) == "table"
+             or widget_hint(container_type) == "table")
+    if not asked:
+        return False
+    elem = container_type.vtype if isinstance(container_type, st.Dict) else container_type.type
+    real, _, _ = resolve(elem)
+    return is_flat_struct(real)
+
 
 def make_editor(real_type, nullable, required, field_ui=None, ui_schema=None):
     if is_struct(real_type):
         return StructForm(real_type, ui_schema=ui_schema)
     if isinstance(real_type, st.Sequence):
         elem, _, _ = resolve(real_type.type)
+        if wants_table(real_type, field_ui):
+            return StructTableField(real_type, ui_schema=ui_schema)
         return StructListField(real_type, ui_schema=ui_schema) if is_struct(elem) \
             else ScalarListField(real_type, required=required)
     if isinstance(real_type, st.Set):
         return ScalarListField(real_type, required=required)
     if isinstance(real_type, st.Dict):
+        if wants_table(real_type, field_ui):
+            return StructTableField(real_type, ui_schema=ui_schema)
         return DictField(real_type, ui_schema=ui_schema)
     return ScalarField(real_type, nullable=nullable, required=required,
                        field_ui=field_ui)

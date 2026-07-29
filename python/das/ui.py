@@ -28,6 +28,11 @@ WIDGETS = (
     "auto", "lineedit", "multiline", "password",
     "filepath", "dirpath", "image", "url",
     "combo", "spinbox", "checkbox", "list", "dict", "struct",
+    # "table": a Dict(String, Struct) or Sequence(Struct) as rows x columns,
+    # one column per field of the element struct.  Opt-in -- `default_widget`
+    # never returns it, because it only reads well when every element field is
+    # a scalar; a renderer that cannot honour it falls back to "list"/"dict".
+    "table",
 )
 
 
